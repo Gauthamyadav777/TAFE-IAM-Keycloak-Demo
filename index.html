@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TAFE Vocational LMS - IAM Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 60px; background: #f8f9fa; }
+        h1 { color: #0066cc; }
+        button { padding: 14px 32px; font-size: 18px; background: #0066cc; color: white; border: none; border-radius: 8px; margin: 10px; cursor: pointer; }
+        button.logout { background: #dc3545; }
+        .dashboard { margin: 40px auto; max-width: 600px; padding: 30px; background: white; border-radius: 10px; box-shadow: 0 2px 15px rgba(0,0,0,0.1); text-align: left; }
+        .success { color: #28a745; font-size: 19px; margin: 20px; }
+        ul { list-style-type: none; padding-left: 0; }
+        li { margin: 10px 0; font-size: 17px; }
+    </style>
+</head>
+<body>
+    <h1>🏛️ TAFE Vocational LMS</h1>
+    <p><strong>Mock portal demonstrating IAM / SSO / RBAC</strong></p>
+    
+    <button onclick="login()">🔑 Login with TAFE IAM</button>
+    <button onclick="logout()" class="logout">🚪 Logout</button>
+    
+    <div id="status"></div>
+
+    <script>
+        const realm = "TAFE-SAFE";          // Change to "TAFE-SAFE" if that's your actual realm name from the URL
+        const clientId = "tafe-course-portal";
+        const redirectUri = "http://localhost:3000";
+        const keycloakUrl = "http://localhost:8080";
+
+        async function exchangeCodeForTokens(code) {
+            const tokenUrl = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/token`;
+            
+            const body = new URLSearchParams({
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: redirectUri,
+                client_id: clientId
+                // No client_secret needed since client authentication is OFF
+            });
+
+            try {
+                const response = await fetch(tokenUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body
+                });
+
+                if (!response.ok) throw new Error(`Token exchange failed: ${response.status}`);
+
+                const data = await response.json();
+                // data now has: id_token, access_token, refresh_token, etc.
+
+                // Decode ID token (simple base64 decode - not verifying signature for demo)
+                const idTokenParts = data.id_token.split('.');
+                const payload = JSON.parse(atob(idTokenParts[1]));
+
+                console.log("ID Token payload:", payload); // For debugging in browser console
+
+                const groups = payload.groups || [];  // Your mapper puts groups here
+
+                showDashboard(groups);
+            } catch (err) {
+                document.getElementById('status').innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
+            }
+        }
+
+        function showDashboard(groups) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = '';
+
+            const dashboard = document.createElement('div');
+            dashboard.className = 'dashboard';
+
+            if (groups.includes('Students') || groups.includes('/Students')) {
+                dashboard.innerHTML = `
+                    <h2 class="success">🎓 Student Dashboard</h2>
+                    <p><strong>Welcome, student!</strong> You have view-only access (least privilege applied).</p>
+                    <ul>
+                        <li>✅ Certificate IV in Cyber Security</li>
+                        <li>✅ Diploma of Information Technology</li>
+                        <li>📚 View your enrolled courses and resources</li>
+                    </ul>
+                    <p><em>This view is restricted based on your group membership.</em></p>
+                `;
+            } else if (groups.includes('Lecturers') || groups.includes('/Lecturers')) {
+                dashboard.innerHTML = `
+                    <h2 class="success">👨‍🏫 Lecturer Admin Dashboard</h2>
+                    <p><strong>Welcome, lecturer!</strong> You have full admin access.</p>
+                    <ul>
+                        <li>📚 Manage all courses</li>
+                        <li>👥 User & enrollment management</li>
+                        <li>📊 Reports, analytics & approvals</li>
+                    </ul>
+                    <p><em>Role-Based Access Control (RBAC) granted via group membership.</em></p>
+                `;
+            } else {
+                dashboard.innerHTML = `<p class="success">Logged in successfully! (No specific group detected)</p>`;
+            }
+
+            statusDiv.appendChild(dashboard);
+        }
+
+        function login() {
+            const authUrl = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/auth` +
+                `?client_id=${clientId}` +
+                `&response_type=code` +
+                `&scope=openid profile email` +
+                `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+                `&state=tafe-demo` +
+                `&prompt=login`;  // Forces login prompt
+
+            window.location.href = authUrl;
+        }
+
+        function logout() {
+            window.location.href = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/logout?redirect_uri=${encodeURIComponent(redirectUri)}`;
+        }
+
+        // Handle redirect back with code
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+
+            if (code) {
+                exchangeCodeForTokens(code);
+                // Clean URL bar
+                history.replaceState({}, document.title, "/");
+            }
+        };
+    </script>
+</body>
+</html>
